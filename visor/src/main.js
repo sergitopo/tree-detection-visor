@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl'
 import './style.css'
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const FONTANARS = [-0.7885, 38.8165]  // [lng, lat]
+const FONTANARS = [-0.7866623, 38.7814255]  // [lng, lat]
 const INITIAL_ZOOM = 14
 
 // IGN PNOA-MA — Spain national orthophoto, free, covers full Valencia/Fontanars area
