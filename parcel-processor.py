@@ -60,6 +60,13 @@ def process_tif(tif_path: str):
     out_shp = os.path.join(OUTPUT_DIR, f"{feature_id}.shp")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+    # Skip if already successfully processed in a previous run
+    if os.path.exists(out_shp):
+        logger.info(f"[ID:{feature_id}] Output shapefile already exists — skipping")
+        _delete_file(tif_path,  feature_id)
+        _delete_file(meta_path, feature_id)
+        return True
+
     logger.info(f"[ID:{feature_id}] Calling detect_trees on {tif_path}")
 
     try:
@@ -92,11 +99,15 @@ def process_tif(tif_path: str):
         # keeps moving; errors have already been logged above.
         _delete_file(tif_path,  feature_id)
         _delete_file(meta_path, feature_id)
+        return True
 
     except subprocess.TimeoutExpired:
-        logger.error(f"[ID:{feature_id}] detect_trees.py timed out after 300 s")
+        logger.error(f"[ID:{feature_id}] detect_trees.py timed out after 300 s — will retry")
+        # Do NOT delete the tif so it gets retried on the next scan
+        return False
     except Exception as e:
         logger.error(f"[ID:{feature_id}] Unexpected error: {e}")
+        return False
 
 
 def _delete_file(path: str, feature_id):
@@ -131,9 +142,11 @@ def main():
                 # Let the writer finish before we open the file
                 time.sleep(FILE_SETTLE)
                 if not os.path.exists(tif_path):
-                    continue   # was removed between scan and now
-                processed.add(fname)
-                process_tif(tif_path)
+                    processed.add(fname)   # gone externally, don't revisit
+                    continue
+                # Mark processed only on success so failures are retried
+                if process_tif(tif_path):
+                    processed.add(fname)
 
         except Exception as e:
             logger.error(f"Error in watcher loop: {e}")

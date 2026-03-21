@@ -230,9 +230,10 @@ def process_shp(shp_path: str):
 
     except Exception as e:
         logger.error(f"[{base}] Error processing shapefile: {e}")
-        return   # Do NOT delete the source file if something went wrong
+        return False   # Do NOT delete the source file — will be retried
 
     delete_shapefile(shp_path)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -258,9 +259,11 @@ def main():
                 shp_path = os.path.join(INPUT_DIR, fname)
                 time.sleep(FILE_SETTLE)
                 if not os.path.exists(shp_path):
+                    processed.add(fname)   # gone externally, don't revisit
                     continue
-                processed.add(fname)
-                process_shp(shp_path)
+                # Mark processed only on success so failures are retried
+                if process_shp(shp_path):
+                    processed.add(fname)
 
         except Exception as e:
             logger.error(f"Error in watcher loop: {e}")

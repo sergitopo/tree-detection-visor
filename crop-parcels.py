@@ -38,6 +38,7 @@ TARGET_CLASSES = {
     'Frutales (regadío)',
     'Olivar - frutales (secano)',
     'Olivar (regadío)',
+    'Frutales (secano)',
 }
 
 
