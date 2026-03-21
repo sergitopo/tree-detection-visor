@@ -2,7 +2,7 @@ name: Build & Deploy Visor
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'visor/**'
   workflow_dispatch:
