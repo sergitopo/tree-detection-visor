@@ -11,9 +11,12 @@ parcel-processor.py.  For every new shapefile it:
 """
 
 import os
+import json
 import time
 import logging
 import shapefile
+from rasterio.warp import transform as warp_transform
+from rasterio.crs import CRS
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -29,8 +32,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 INPUT_DIR   = os.path.join(BASE_DIR, '.output-trees-parcels')
-OUTPUT_SHP  = os.path.join(BASE_DIR, 'union-trees.shp')
-POLL_INTERVAL = 2   # seconds between directory scans
+OUTPUT_SHP     = os.path.join(BASE_DIR, 'union-trees.shp')
+OUTPUT_GEOJSON = os.path.join(BASE_DIR, 'union-trees.geojson')
+POLL_INTERVAL  = 2   # seconds between directory scans
 FILE_SETTLE   = 1   # seconds to wait after a new file is detected
 
 # EPSG:25830 WKT (ETRS89 / UTM zone 30N) — matches the mosaic CRS
@@ -109,6 +113,57 @@ def delete_shapefile(shp_path: str):
 
 
 # ---------------------------------------------------------------------------
+# GeoJSON export (for the web visor)
+# ---------------------------------------------------------------------------
+_SRC_CRS = CRS.from_epsg(25830)
+_DST_CRS = CRS.from_epsg(4326)
+
+
+def _export_geojson():
+    """Re-read union-trees.shp, reproject every point to WGS84, write
+    union-trees.geojson so the Leaflet visor can load it directly.
+    Each MULTIPOINT feature is exploded into individual POINT features.
+    """
+    features = []
+    try:
+        if not os.path.exists(OUTPUT_SHP) or os.path.getsize(OUTPUT_SHP) < 100:
+            return
+
+        with shapefile.Reader(OUTPUT_SHP) as sf:
+            flds = [f[0] for f in sf.fields[1:]]
+            for sr in sf.iterShapeRecords():
+                props = dict(zip(flds, sr.record))
+                pts   = sr.shape.points
+                if not pts:
+                    continue
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                lons, lats = warp_transform(_SRC_CRS, _DST_CRS, xs, ys)
+                for lon, lat in zip(lons, lats):
+                    features.append({
+                        'type': 'Feature',
+                        'geometry': {
+                            'type': 'Point',
+                            'coordinates': [round(lon, 7), round(lat, 7)],
+                        },
+                        'properties': {
+                            'id':        int(props.get('id', 0)),
+                            'clase':     str(props.get('clase', '')),
+                            'num_trees': int(props.get('num_trees', 0)),
+                        },
+                    })
+
+        geojson = {'type': 'FeatureCollection', 'features': features}
+        with open(OUTPUT_GEOJSON, 'w', encoding='utf-8') as f:
+            json.dump(geojson, f, ensure_ascii=False, separators=(',', ':'))
+
+        logger.info(f"Exported {len(features)} tree points to {OUTPUT_GEOJSON}")
+
+    except Exception as e:
+        logger.error(f"GeoJSON export failed: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Core processing
 # ---------------------------------------------------------------------------
 def process_shp(shp_path: str):
@@ -160,6 +215,7 @@ def process_shp(shp_path: str):
         w.close()
 
         _write_prj(OUTPUT_SHP)
+        _export_geojson()
 
         logger.info(
             f"[ID:{feature_id}] Appended {num_trees} trees to union-trees.shp "

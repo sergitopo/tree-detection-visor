@@ -15,6 +15,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+MIN_TREE_DISTANCE_M = 4   # minimum allowed distance between two tree centroids (metres)
+
+
+def _suppress_close_centroids(centroids, min_dist=MIN_TREE_DISTANCE_M):
+    """Greedy NMS: discard any centroid that is closer than *min_dist* metres
+    to an already-accepted centroid.  Preserves insertion order."""
+    kept = []
+    min_dist_sq = min_dist ** 2
+    for cx, cy in centroids:
+        for kx, ky in kept:
+            if (cx - kx) ** 2 + (cy - ky) ** 2 < min_dist_sq:
+                break   # too close to an accepted centroid
+        else:
+            kept.append((cx, cy))
+    return kept
+
+
 def detect_trees(input_tif, output_shp, feature_id, clase=''):
     """Detect trees in a parcel raster and write centroids to a point shapefile.
 
@@ -38,17 +55,18 @@ def detect_trees(input_tif, output_shp, feature_id, clase=''):
     # NDVI
     ndvi = (nir - red) / (nir + red + 1e-6)
 
-    # Vegetation mask
-    veg_mask = ndvi > 0.15
+    # Vegetation mask — lowered to catch drought-stressed/dormant crowns
+    veg_mask = ndvi > 0.08
 
     # Smooth
     ndvi_smooth = ndimage.gaussian_filter(ndvi, sigma=1)
 
     # Local maxima (tree crown centres)
+    # threshold_abs lowered so sparse/dormant crowns (NDVI 0.1–0.2) are detected
     coords = peak_local_max(
         ndvi_smooth,
         min_distance=3,
-        threshold_abs=0.2
+        threshold_abs=0.1
     )
 
     # Create markers
@@ -72,6 +90,15 @@ def detect_trees(input_tif, output_shp, feature_id, clase=''):
         X = transform.c + x * transform.a
         Y = transform.f + y * transform.e
         centroids.append((X, Y))
+
+    # Remove false positives caused by two near-touching crowns being split
+    # into separate watershed regions that are < MIN_TREE_DISTANCE_M apart.
+    before = len(centroids)
+    centroids = _suppress_close_centroids(centroids)
+    suppressed = before - len(centroids)
+    if suppressed:
+        logger.info(f"[ID:{feature_id}] Suppressed {suppressed} centroids "
+                    f"closer than {MIN_TREE_DISTANCE_M} m to another")
 
     # Write output shapefile
     os.makedirs(os.path.dirname(os.path.abspath(output_shp)), exist_ok=True)
