@@ -44,11 +44,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate tiles & cluster data
-        run: node scripts/build-data.js
-
-      - name: Build
-        run: node node_modules/.bin/vite build
+      - name: Build (generates tiles + bundles app)
+        run: pnpm run build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
