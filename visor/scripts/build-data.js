@@ -38,10 +38,18 @@ console.log(`  ${groups.size} unique parcels`)
 // ── Compute clusters (one centroid per parcel) ───────────────────────────────
 const clusterFeatures = []
 for (const [id, features] of groups) {
-  const lons = features.map(f => f.geometry.coordinates[0])
-  const lats = features.map(f => f.geometry.coordinates[1])
-  const cx = lons.reduce((a, b) => a + b, 0) / lons.length
-  const cy = lats.reduce((a, b) => a + b, 0) / lats.length
+  let cLonSum = 0, cLatSum = 0
+  let bMinLon = Infinity, bMaxLon = -Infinity, bMinLat = Infinity, bMaxLat = -Infinity
+  for (const f of features) {
+    const [lon, lat] = f.geometry.coordinates
+    cLonSum += lon; cLatSum += lat
+    if (lon < bMinLon) bMinLon = lon
+    if (lon > bMaxLon) bMaxLon = lon
+    if (lat < bMinLat) bMinLat = lat
+    if (lat > bMaxLat) bMaxLat = lat
+  }
+  const cx = cLonSum / features.length
+  const cy = cLatSum / features.length
 
   clusterFeatures.push({
     type: 'Feature',
@@ -49,8 +57,7 @@ for (const [id, features] of groups) {
     properties: {
       id,
       count: features.length,
-      // bbox as array: [minLon, minLat, maxLon, maxLat]
-      bbox: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+      bbox: [bMinLon, bMinLat, bMaxLon, bMaxLat],
     },
   })
 }
@@ -83,12 +90,14 @@ function lat2tile(lat, z) {
 }
 
 // ── Bounding box of the whole dataset ────────────────────────────────────────
-const allLons = geojson.features.map(f => f.geometry.coordinates[0])
-const allLats = geojson.features.map(f => f.geometry.coordinates[1])
-const minLon = Math.min(...allLons)
-const maxLon = Math.max(...allLons)
-const minLat = Math.min(...allLats)
-const maxLat = Math.max(...allLats)
+let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
+for (const f of geojson.features) {
+  const [lon, lat] = f.geometry.coordinates
+  if (lon < minLon) minLon = lon
+  if (lon > maxLon) maxLon = lon
+  if (lat < minLat) minLat = lat
+  if (lat > maxLat) maxLat = lat
+}
 
 // ── Build tile index ─────────────────────────────────────────────────────────
 console.log('Building tile index…')
