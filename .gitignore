@@ -1,2 +1,6 @@
 .output-trees-parcels
 .raster-crops
+*.shp
+*.shx
+*.dbf
+*.prj
