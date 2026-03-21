@@ -86,18 +86,26 @@ def _write_prj(shp_path: str, wkt: str = _WKT_25830):
 
 
 def _read_existing():
-    """Return (shapes, records) from the current union-trees.shp."""
-    shapes  = []
-    records = []
+    """Return (point_lists, records) from the current union-trees.shp.
+
+    Point lists are plain Python [[x, y], ...] lists — not Shape objects —
+    so we can safely pass them to w.multipoint() when rewriting the file.
+    Features with no points are skipped to avoid writer count mismatches.
+    """
+    point_lists = []
+    records     = []
     try:
         if os.path.exists(OUTPUT_SHP) and os.path.getsize(OUTPUT_SHP) > 100:
             with shapefile.Reader(OUTPUT_SHP) as sf:
                 for sr in sf.iterShapeRecords():
-                    shapes.append(sr.shape)
+                    pts = [[p[0], p[1]] for p in sr.shape.points]
+                    if not pts:
+                        continue   # skip empty/null features
+                    point_lists.append(pts)
                     records.append(list(sr.record))
     except Exception as e:
         logger.warning(f"Could not read existing union-trees.shp: {e}")
-    return shapes, records
+    return point_lists, records
 
 
 def delete_shapefile(shp_path: str):
@@ -202,16 +210,14 @@ def process_shp(shp_path: str):
         w.field('clase',     'C', 80)
         w.field('num_trees', 'N', 10)
 
-        for shp, rec in zip(ex_shapes, ex_records):
-            w.shape(shp)
+        for pts, rec in zip(ex_shapes, ex_records):
+            w.multipoint(pts)
             w.record(*rec)
 
         if points:
             w.multipoint(points)
-        else:
-            # Write an empty but valid MULTIPOINT geometry
-            w.null()
-        w.record(feature_id, clase, num_trees)
+            w.record(feature_id, clase, num_trees)
+        # If no points, skip writing this feature entirely (no shape = no record)
         w.close()
 
         _write_prj(OUTPUT_SHP)
