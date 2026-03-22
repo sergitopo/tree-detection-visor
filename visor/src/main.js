@@ -65,7 +65,22 @@ btnClear.innerHTML = '✕'
 btnClear.addEventListener('click', clearGroupLayer)
 document.body.appendChild(btnClear)
 
-buildLegend()
+// ── Legend element + toggle ──────────────────────────────────────────────
+const legendEl = document.createElement('div')
+legendEl.id = 'legend'
+document.body.appendChild(legendEl)
+updateLegend(INITIAL_ZOOM)
+
+const btnLegend = document.createElement('button')
+btnLegend.id = 'btn-legend'
+btnLegend.className = 'ctrl-btn'
+btnLegend.title = 'Mostrar/ocultar leyenda'
+btnLegend.innerHTML = '🌿'
+btnLegend.addEventListener('click', () => {
+  const hidden = legendEl.classList.toggle('legend--hidden')
+  btnLegend.classList.toggle('ctrl-btn--active', !hidden)
+})
+document.body.appendChild(btnLegend)
 
 // ── Step expressions helpers ───────────────────────────────────────────────
 /** Builds a MapLibre `step` expression for the `count` property */
@@ -87,13 +102,54 @@ map.on('load', async () => {
   const total = clustersGJ.features.reduce((s, f) => s + f.properties.count, 0)
   statsEl.textContent = `${total.toLocaleString('es-ES')} árboles detectados`
 
-  map.addSource('clusters', { type: 'geojson', data: clustersGJ })
+  map.addSource('clusters', {
+    type: 'geojson',
+    data: clustersGJ,
+    cluster: true,
+    clusterRadius: 80,
+    clusterMaxZoom: 14,  // above zoom 14 parcels are shown individually
+    clusterProperties: { count: ['+', ['get', 'count']] },
+  })
 
-  // Cluster circles
+  // Super-cluster circles (multiple parcels merged at low zoom)
+  map.addLayer({
+    id: 'super-clusters-circle',
+    type: 'circle',
+    source: 'clusters',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-radius': stepExpr('count', CIRCLE_RADII),
+      'circle-color':  stepExpr('count', CIRCLE_COLORS),
+      'circle-opacity': 0.75,
+      'circle-stroke-width': 3,
+      'circle-stroke-color': 'rgba(255,255,255,0.9)',
+    },
+  })
+
+  map.addLayer({
+    id: 'super-clusters-label',
+    type: 'symbol',
+    source: 'clusters',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['to-string', ['get', 'count']],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': stepExpr('count', [11, 13, 15, 17]),
+      'text-allow-overlap': true,
+    },
+    paint: {
+      'text-color': '#fff',
+      'text-halo-color': 'rgba(0,0,0,0.3)',
+      'text-halo-width': 1,
+    },
+  })
+
+  // Individual parcel circles (one per parcel, unclustered)
   map.addLayer({
     id: 'clusters-circle',
     type: 'circle',
     source: 'clusters',
+    filter: ['!', ['has', 'point_count']],
     maxzoom: 18,
     paint: {
       'circle-radius': stepExpr('count', CIRCLE_RADII),
@@ -104,11 +160,12 @@ map.on('load', async () => {
     },
   })
 
-  // Cluster count labels
+  // Individual parcel count labels
   map.addLayer({
     id: 'clusters-label',
     type: 'symbol',
     source: 'clusters',
+    filter: ['!', ['has', 'point_count']],
     maxzoom: 18,
     layout: {
       'text-field': ['to-string', ['get', 'count']],
@@ -151,15 +208,31 @@ map.on('load', async () => {
   map.on('mouseenter', 'clusters-circle', () => { map.getCanvas().style.cursor = 'pointer' })
   map.on('mouseleave', 'clusters-circle', () => { map.getCanvas().style.cursor = '' })
 
-  // Hide group layer when zooming out below threshold
+  // Super-cluster click → zoom in to expand
+  map.on('click', 'super-clusters-circle', async (e) => {
+    const feature = e.features[0]
+    const clusterId = feature.properties.cluster_id
+    const zoom = await map.getSource('clusters').getClusterExpansionZoom(clusterId)
+    map.easeTo({ center: feature.geometry.coordinates, zoom: zoom + 0.5 })
+  })
+  map.on('mouseenter', 'super-clusters-circle', () => { map.getCanvas().style.cursor = 'zoom-in' })
+  map.on('mouseleave', 'super-clusters-circle', () => { map.getCanvas().style.cursor = '' })
+
+  updateLegend(map.getZoom())
+
+  // Hide group layer when zooming out below threshold (skip during programmatic fitBounds)
   map.on('zoom', () => {
-    if (map.getZoom() < 16 && map.getSource('group')) {
+    const z = map.getZoom()
+    updateLegend(z)
+    if (!fittingBounds && z < 16 && map.getSource('group')) {
       clearGroupLayer()
     }
   })
 })
 
 // ── Parcel group interaction ───────────────────────────────────────────────
+let fittingBounds = false
+
 async function onClusterClick(e) {
   const feature = e.features[0]
   const { id, bbox } = feature.properties
@@ -188,6 +261,8 @@ async function onClusterClick(e) {
 
   btnClear.style.display = 'flex'
 
+  fittingBounds = true
+  map.once('moveend', () => { fittingBounds = false })
   map.fitBounds(
     [[parsedBbox[0], parsedBbox[1]], [parsedBbox[2], parsedBbox[3]]],
     { padding: 60, maxZoom: 19 }
@@ -201,13 +276,14 @@ function clearGroupLayer() {
 }
 
 // ── Legend ─────────────────────────────────────────────────────────────────
-function buildLegend() {
-  const legend = document.createElement('div')
-  legend.id = 'legend'
+function updateLegend(zoom) {
+  const isMerged = zoom <= 14   // super-clusters active
+  const showTrees = zoom >= 18  // individual tree dots visible
 
-  const title = document.createElement('h3')
-  title.textContent = '🌿 Árboles por parcela'
-  legend.appendChild(title)
+  const title = isMerged ? '🌿 Árboles por grupo' : '🌿 Árboles por parcela'
+  const hint  = isMerged
+    ? '<p class="legend-hint">Haz clic para ampliar</p>'
+    : '<p class="legend-hint">Haz clic para ver los árboles</p>'
 
   const ranges = [
     { label: '1 – 50',     color: CIRCLE_COLORS[0], size: CIRCLE_RADII[0] },
@@ -216,21 +292,19 @@ function buildLegend() {
     { label: '601+',       color: CIRCLE_COLORS[3], size: CIRCLE_RADII[3] },
   ]
 
+  let html = `<h3>${title}</h3>${hint}`
   for (const r of ranges) {
-    const row = document.createElement('div')
-    row.className = 'legend-row'
-
-    const dot = document.createElement('span')
-    dot.className = 'legend-dot'
-    dot.style.cssText = `width:${r.size * 2}px;height:${r.size * 2}px;background:${r.color}`
-
-    const label = document.createElement('span')
-    label.textContent = r.label
-
-    row.appendChild(dot)
-    row.appendChild(label)
-    legend.appendChild(row)
+    const d = r.size * 2
+    html += `<div class="legend-row">
+      <span class="legend-dot" style="width:${d}px;height:${d}px;background:${r.color}"></span>
+      <span>${r.label}</span>
+    </div>`
   }
-
-  document.body.appendChild(legend)
+  if (showTrees) {
+    html += `<div class="legend-row">
+      <span class="legend-dot" style="width:8px;height:8px;background:#4CAF50;border:1px solid #fff"></span>
+      <span>Árbol individual</span>
+    </div>`
+  }
+  legendEl.innerHTML = html
 }
