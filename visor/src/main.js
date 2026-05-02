@@ -66,6 +66,9 @@ btnClear.addEventListener('click', clearGroupLayer)
 document.body.appendChild(btnClear)
 
 // ── Legend element + toggle ──────────────────────────────────────────────
+let heatmapVisible = true
+let clustersVisible = true
+
 const legendEl = document.createElement('div')
 legendEl.id = 'legend'
 document.body.appendChild(legendEl)
@@ -188,6 +191,31 @@ map.on('load', async () => {
     maxzoom: 19,
   })
 
+  // Heatmap — individual tree density from union-trees.geojson (via vector tiles)
+  map.addLayer({
+    id: 'trees-heat',
+    type: 'heatmap',
+    source: 'trees-tiles',
+    'source-layer': 'trees',
+    minzoom: 12,
+    maxzoom: 18,
+    paint: {
+      'heatmap-weight': 0.3,
+      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 12, 0.1, 18, 1.2],
+      'heatmap-color': [
+        'interpolate', ['linear'], ['heatmap-density'],
+        0,    'rgba(0,0,0,0)',
+        0.05, 'rgba(65,182,196,0.5)',
+        0.25, 'rgba(120,198,121,0.75)',
+        0.5,  'rgba(254,204,92,0.9)',
+        0.75, 'rgba(240,59,32,1)',
+        1,    'rgba(128,0,38,1)',
+      ],
+      'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 15, 8, 18, 14],
+      'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.9, 16, 0.75, 18, 0],
+    },
+  }, 'super-clusters-circle')  // render below cluster circles
+
   map.addLayer({
     id: 'trees-dots',
     type: 'circle',
@@ -306,5 +334,33 @@ function updateLegend(zoom) {
       <span>Árbol individual</span>
     </div>`
   }
+
+  html += `<div class="legend-divider"></div>
+    <label class="legend-toggle">
+      <input type="checkbox" id="toggle-heat"${heatmapVisible ? ' checked' : ''}>
+      <span>🌡 Mapa de calor</span>
+    </label>
+    <label class="legend-toggle">
+      <input type="checkbox" id="toggle-clusters"${clustersVisible ? ' checked' : ''}>
+      <span>🔵 Parcelas</span>
+    </label>`
+
   legendEl.innerHTML = html
+
+  const CLUSTER_LAYERS = ['super-clusters-circle', 'super-clusters-label', 'clusters-circle', 'clusters-label']
+
+  legendEl.querySelector('#toggle-heat').addEventListener('change', (e) => {
+    heatmapVisible = e.target.checked
+    if (map.getLayer('trees-heat')) {
+      map.setLayoutProperty('trees-heat', 'visibility', heatmapVisible ? 'visible' : 'none')
+    }
+  })
+
+  legendEl.querySelector('#toggle-clusters').addEventListener('change', (e) => {
+    clustersVisible = e.target.checked
+    const vis = clustersVisible ? 'visible' : 'none'
+    for (const id of CLUSTER_LAYERS) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
+    }
+  })
 }

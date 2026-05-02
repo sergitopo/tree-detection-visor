@@ -119,6 +119,30 @@ html, body {
   box-shadow: 0 1px 4px rgba(0,0,0,.35);
 }
 
+.legend-divider {
+  height: 1px;
+  background: rgba(0,0,0,.1);
+  margin: 7px 0 5px;
+}
+
+.legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #444;
+  user-select: none;
+}
+
+.legend-toggle input[type="checkbox"] {
+  accent-color: #4CAF50;
+  cursor: pointer;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
 /* ── Clear-group button ────────────────────────────────────────────────── */
 
 #btn-clear {
