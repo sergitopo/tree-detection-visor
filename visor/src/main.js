@@ -184,9 +184,10 @@ map.on('load', async () => {
   })
 
   // 2. Individual tree dots — vector tiles (visible only at zoom ≥ 18 ≈ 1:1000)
+  const tilesBaseUrl = new URL(import.meta.env.BASE_URL, document.baseURI).href
   map.addSource('trees-tiles', {
     type: 'vector',
-    tiles: [new URL(`${import.meta.env.BASE_URL}tiles/{z}/{x}/{y}.pbf`, location.href).href],
+    tiles: [`${tilesBaseUrl}tiles/{z}/{x}/{y}.pbf`],
     minzoom: 12,
     maxzoom: 19,
   })
